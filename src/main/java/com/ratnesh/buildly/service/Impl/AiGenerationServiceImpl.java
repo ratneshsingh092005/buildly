@@ -1,5 +1,6 @@
 package com.ratnesh.buildly.service.Impl;
 
+import com.ratnesh.buildly.dto.chat.StreamResponse;
 import com.ratnesh.buildly.entity.*;
 import com.ratnesh.buildly.enums.ChatEventType;
 import com.ratnesh.buildly.enums.MessageRole;
@@ -12,9 +13,11 @@ import com.ratnesh.buildly.repository.*;
 import com.ratnesh.buildly.security.AuthUtil;
 import com.ratnesh.buildly.service.AiGenerationService;
 import com.ratnesh.buildly.service.ProjectFileService;
+import com.ratnesh.buildly.service.UsageService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.ai.chat.metadata.Usage;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
@@ -42,11 +45,14 @@ public class AiGenerationServiceImpl implements AiGenerationService {
     private final UserRepository userRepository;
     private final ChatMessageRepository chatMessageRepository;
     private final ChatEventRepository chatEventRepository;
+    private final UsageLogRepository usageLogRepository;
+    private final UsageService usageService;
     @Override
     // AI might modify the project by user's prompt
     //only users with edit permission should be allowed to do so
     @PreAuthorize("@security.canEditProject(#projectId)")
-    public Flux<String> streamResponse(String userMessage, Long projectId) {
+    public Flux<StreamResponse> streamResponse(String userMessage, Long projectId) {
+        usageService.checkDailyTokensUsage();
         Long userId = authUtil.getCurrentUserId();
         ChatSession chatSession = createChatSessionIfNotExists(projectId,userId);
 
@@ -59,6 +65,8 @@ public class AiGenerationServiceImpl implements AiGenerationService {
         long startTime = System.currentTimeMillis();
 //        // AtomicReference is used because endTime is updated inside lambda callbacks.
         AtomicReference<Long> endTime = new AtomicReference<>(0L);
+        AtomicReference<Usage> usageRef = new AtomicReference<>();
+
         return chatClient.prompt()
                 .system(PromptUtils.CODE_GENERATION_SYSTEM_PROMPT)
                 .user(userMessage)
@@ -77,30 +85,40 @@ public class AiGenerationServiceImpl implements AiGenerationService {
                     if (content!=null && !content.isEmpty() && endTime.get()==0){
                         endTime.set(System.currentTimeMillis());
                     }
+                    if(response.getMetadata().getUsage() != null) {
+                        usageRef.set(response.getMetadata().getUsage());
+                    }
                     fullResponseBuffer.append(content);
                 })
                 .doOnComplete(()->{
                     Schedulers.boundedElastic().schedule(()->{
                         Long duration = (endTime.get() - startTime)/1000;
-                        finalizeChats(userMessage,chatSession,fullResponseBuffer.toString(),duration);
+                        finalizeChats(userMessage,chatSession,fullResponseBuffer.toString(),duration,usageRef.get());
                     });
                 })
                 .doOnError(error -> log.error("Error during streaming for projectId: {}", projectId))
-                .map(chatResponse -> Objects.requireNonNull(chatResponse.getResult().getOutput().getText()));
+                .map(chatResponse ->{
+                        String text = Objects.requireNonNull(chatResponse.getResult().getOutput().getText());
+                        return new StreamResponse(text!=null? text : "");
+                });
 //map bz currently we have Flux<ChatResponse> we want Flux<String>
     }
 
 
-    private void finalizeChats(String userMessage, ChatSession chatSession, String fullText, Long duration) {
+    private void finalizeChats(String userMessage, ChatSession chatSession, String fullText, Long duration,Usage usage) {
         Long projectId = chatSession.getProject().getId();
 
+        if(usage != null) {
+            int totalTokens = usage.getTotalTokens();
+            usageService.recordTokenUsage(chatSession.getUser().getId(), totalTokens);
+        }
         // Save the User message
         chatMessageRepository.save(
                 ChatMessage.builder()
                         .chatSession(chatSession)
                         .role(MessageRole.USER)
                         .content(userMessage)
-//                        .tokensUsed(usage.getPromptTokens())
+                        .tokensUsed(usage.getPromptTokens())
                         .build()
         );
 
@@ -108,7 +126,7 @@ public class AiGenerationServiceImpl implements AiGenerationService {
                 .role(MessageRole.ASSISTANT)
                 .content("Assistant Message here...")
                 .chatSession(chatSession)
-//                .tokensUsed(usage.getCompletionTokens())
+                .tokensUsed(usage.getCompletionTokens())
                 .build();
 
         assistantChatMessage = chatMessageRepository.save(assistantChatMessage);

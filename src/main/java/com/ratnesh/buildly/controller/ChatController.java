@@ -2,6 +2,7 @@ package com.ratnesh.buildly.controller;
 
 import com.ratnesh.buildly.dto.chat.ChatRequest;
 import com.ratnesh.buildly.dto.chat.ChatResponse;
+import com.ratnesh.buildly.dto.chat.StreamResponse;
 import com.ratnesh.buildly.service.AiGenerationService;
 import com.ratnesh.buildly.service.ChatService;
 import lombok.RequiredArgsConstructor;
@@ -20,12 +21,12 @@ public class ChatController {
     private final AiGenerationService aiGenerationService;
     private final ChatService chatService;
     @PostMapping(value = "/stream",produces = MediaType.TEXT_EVENT_STREAM_VALUE)
-    public Flux<ServerSentEvent<String>> streamChat(
+    public Flux<ServerSentEvent<StreamResponse>> streamChat(
             @RequestBody ChatRequest request
     ){
         return aiGenerationService.streamResponse(request.message(),request.projectId())
 //                we get Flux<String> but we want Flux<ServerSentEvent<String>> so map it
-                .map(data -> ServerSentEvent.<String>builder()
+                .map(data -> ServerSentEvent.<StreamResponse>builder()
                         .data(data)
                         .build()
                 );

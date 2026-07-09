@@ -6,7 +6,6 @@ import com.ratnesh.buildly.error.ResourceNotFoundException;
 import com.ratnesh.buildly.repository.ProjectFileRepository;
 import com.ratnesh.buildly.repository.ProjectRepository;
 import com.ratnesh.buildly.service.ProjectTemplateService;
-
 import io.minio.*;
 import io.minio.messages.Item;
 import lombok.RequiredArgsConstructor;
@@ -30,13 +29,15 @@ public class ProjectTemplateServiceImpl implements ProjectTemplateService {
     private static final String TARGET_BUCKET = "projects";
     private static final String TEMPLATE_NAME = "react-vite-tailwind-daisyui-starter";
 
-
     @Override
     public void initializeProjectFromTemplate(Long projectId) {
-        Project project = projectRepository.findById(projectId).orElseThrow(
-                () -> new ResourceNotFoundException("Project", projectId.toString()));
+
+        Project project = projectRepository.findById(projectId)
+                .orElseThrow(() ->
+                        new ResourceNotFoundException("Project", projectId.toString()));
 
         try {
+
             Iterable<Result<Item>> results = minioClient.listObjects(
                     ListObjectsArgs.builder()
                             .bucket(TEMPLATE_BUCKET)
@@ -45,13 +46,16 @@ public class ProjectTemplateServiceImpl implements ProjectTemplateService {
                             .build()
             );
 
-            List<ProjectFile> filesToSave = new ArrayList<>(); // for metadata in postgres db
+            List<ProjectFile> filesToSave = new ArrayList<>();
 
             for (Result<Item> result : results) {
+
                 Item item = result.get();
                 String sourceKey = item.objectName();
 
-                String cleanPath = sourceKey.replaceFirst(TEMPLATE_NAME + "/", "");
+                String cleanPath =
+                        sourceKey.replaceFirst(TEMPLATE_NAME + "/", "");
+
                 String destKey = projectId + "/" + cleanPath;
 
                 minioClient.copyObject(
@@ -67,7 +71,7 @@ public class ProjectTemplateServiceImpl implements ProjectTemplateService {
                                 .build()
                 );
 
-                ProjectFile pf = ProjectFile.builder()
+                ProjectFile projectFile = ProjectFile.builder()
                         .project(project)
                         .path(cleanPath)
                         .minioObjectKey(destKey)
@@ -75,37 +79,25 @@ public class ProjectTemplateServiceImpl implements ProjectTemplateService {
                         .updatedAt(Instant.now())
                         .build();
 
-                filesToSave.add(pf);
+                filesToSave.add(projectFile);
             }
 
             projectFileRepository.saveAll(filesToSave);
 
-        } catch (Exception e) {
-            throw new RuntimeException("Failed to initialize project from template", e);
-        }
+            log.info("Initialized template for project {}", projectId);
 
+        } catch (Exception e) {
+
+            log.error(
+                    "Failed to initialize template for project {}",
+                    projectId,
+                    e
+            );
+
+            throw new RuntimeException(
+                    "Failed to initialize project from template",
+                    e
+            );
+        }
     }
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
