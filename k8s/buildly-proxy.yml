@@ -1,0 +1,44 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: buildly-proxy
+  namespace: buildly
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: buildly-proxy
+  template:
+    metadata:
+      labels:
+        app: buildly-proxy
+    spec:
+      containers:
+        - name: proxy
+          image: buildly-proxy:latest
+          imagePullPolicy: IfNotPresent
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+          env:
+            - name: REDIS_URL
+              # Refers to the service in the same namespace
+              value: "redis://redis-service:6379"
+          ports:
+            - containerPort: 80
+
+---
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: buildly-proxy-svc
+  namespace: buildly
+spec:
+  type: LoadBalancer
+  ports:
+    - port: 80
+      targetPort: 80
+  selector:
+    app: buildly-proxy

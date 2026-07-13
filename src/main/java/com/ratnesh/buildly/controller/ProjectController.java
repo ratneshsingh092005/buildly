@@ -1,9 +1,11 @@
 package com.ratnesh.buildly.controller;
 
 
+import com.ratnesh.buildly.deploy.DeployResponse;
 import com.ratnesh.buildly.dto.project.ProjectRequest;
 import com.ratnesh.buildly.dto.project.ProjectResponse;
 import com.ratnesh.buildly.dto.project.ProjectSummaryResponse;
+import com.ratnesh.buildly.service.DeploymentService;
 import com.ratnesh.buildly.service.ProjectService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -20,7 +22,7 @@ import java.util.List;
 
 public class ProjectController {
     private final ProjectService projectService;
-
+    private final DeploymentService deploymentService;
     @GetMapping
     public ResponseEntity<List<ProjectSummaryResponse>> getMyProjects(){
         return ResponseEntity.ok(projectService.getUserProjects());
@@ -45,5 +47,10 @@ public class ProjectController {
     public ResponseEntity<Void> deleteProject(@PathVariable Long id){
         projectService.softDelete(id);
         return ResponseEntity.noContent().build();
+    }
+
+    @PostMapping("/{id}/deploy")
+    public ResponseEntity<DeployResponse> deployProject(@PathVariable Long id) {
+        return ResponseEntity.ok(deploymentService.deploy(id));
     }
 }

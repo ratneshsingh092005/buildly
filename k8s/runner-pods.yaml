@@ -2,7 +2,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: runner-pool
-  namespace: ratnesh
+  namespace: buildly
 spec:
   replicas: 2
   selector:
@@ -24,7 +24,7 @@ spec:
             type: DirectoryOrCreate
       containers:
         - name: runner
-          image: node:20-alpine
+          image: node:20-alpine   #to run npm
           workingDir: /app
           command: ["/bin/sh", "-c", "sleep infinity"]
           volumeMounts:
